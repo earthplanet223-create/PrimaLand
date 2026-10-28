@@ -8,8 +8,8 @@ export default async function(req,res){
   if(req.method==="GET"){
    const [clients,projects,events,entries]=await Promise.all([
     db.query("SELECT id,name,email,phone,address,notes,created_at FROM clients ORDER BY created_at DESC"),
-    db.query("SELECT p.id,p.reference,p.client_id,c.name AS client_name,c.phone AS client_phone,p.service,p.location,p.fee,p.status,p.public_note,p.internal_notes,p.due_date,p.created_at,p.updated_at FROM projects p JOIN clients c ON c.id=p.client_id ORDER BY p.created_at DESC"),
-    db.query("SELECT e.id,e.project_id,p.reference,c.name AS client_name,e.title,e.event_date,e.start_time,e.end_time,e.location,e.status,e.notes FROM survey_events e JOIN projects p ON p.id=e.project_id JOIN clients c ON c.id=p.client_id ORDER BY e.event_date ASC,e.start_time ASC"),
+    db.query("SELECT p.id,p.reference,p.client_id,c.name AS client_name,c.phone AS client_phone,p.service,p.location,p.fee,COALESCE((SELECT SUM(f.amount) FROM financial_entries f WHERE f.project_id=p.id AND f.kind='income'),0) AS amount_received,GREATEST(p.fee-COALESCE((SELECT SUM(f.amount) FROM financial_entries f WHERE f.project_id=p.id AND f.kind='income'),0),0) AS receivable,p.status,p.public_note,p.internal_notes,p.due_date,p.created_at,p.updated_at FROM projects p JOIN clients c ON c.id=p.client_id ORDER BY p.created_at DESC"),
+    db.query("SELECT e.id,e.project_id,p.reference,c.name AS client_name,e.event_type,e.title,e.event_date,e.start_time,e.end_time,e.location,e.status,e.notes FROM survey_events e JOIN projects p ON p.id=e.project_id JOIN clients c ON c.id=p.client_id ORDER BY e.event_date ASC,e.start_time ASC"),
     db.query("SELECT f.id,f.project_id,p.reference,c.name AS client_name,f.kind,f.amount,f.entry_date,f.category,f.description,f.payment_reference FROM financial_entries f LEFT JOIN projects p ON p.id=f.project_id LEFT JOIN clients c ON c.id=p.client_id ORDER BY f.entry_date DESC,f.created_at DESC")
    ]);
    return res.json({clients:clients.rows,projects:projects.rows,events:events.rows,entries:entries.rows});
@@ -39,9 +39,9 @@ export default async function(req,res){
    return res.json({ok:true,project:rows[0]});
   }
   if(action==="event"){
-   const projectId=s(b.project_id,50),title=s(b.title,160),date=isoDate(b.event_date);
+   const projectId=s(b.project_id,50),title=s(b.title,160),date=isoDate(b.event_date),eventType=s(b.event_type,40)||"Survey";
    if(!projectId||!title||!date)return res.status(400).json({error:"Project, activity title and date are required."});
-   const {rows}=await db.query("INSERT INTO survey_events (project_id,title,event_date,start_time,end_time,location,status,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",[projectId,title,date,s(b.start_time,5)||null,s(b.end_time,5)||null,s(b.location,240),s(b.status,40)||"Scheduled",s(b.notes,1000)]);
+   const {rows}=await db.query("INSERT INTO survey_events (project_id,event_type,title,event_date,start_time,end_time,location,status,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",[projectId,eventType,title,date,s(b.start_time,5)||null,s(b.end_time,5)||null,s(b.location,240),s(b.status,40)||"Scheduled",s(b.notes,1000)]);
    return res.status(201).json({ok:true,id:rows[0].id});
   }
   if(action==="entry"){
