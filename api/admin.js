@@ -16,6 +16,26 @@ export default async function(req,res){
   }
   if(req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
   const b=req.body||{}, action=s(b.action,40);
+  if(action==="delete_record"){
+   const id=s(b.id,50),kind=s(b.kind,20);if(!id||!["client","project","event","entry"].includes(kind))return res.status(400).json({error:"Invalid record."});
+   if(kind==="client"){
+    const linked=await db.query("SELECT COUNT(*)::int AS n FROM projects WHERE client_id=$1",[id]);
+    if(Number(linked.rows[0].n)>0)return res.status(409).json({error:"This client has project records. Delete or reassign those projects first; client records with linked work are protected."});
+    const r=await db.query("DELETE FROM clients WHERE id=$1 RETURNING id",[id]);if(!r.rows.length)return res.status(404).json({error:"Client not found."});
+   }else if(kind==="project"){
+    const linked=await db.query("SELECT COUNT(*)::int AS n FROM financial_entries WHERE project_id=$1",[id]);
+    if(Number(linked.rows[0].n)>0)return res.status(409).json({error:"This project has financial transactions linked to it. Those transactions are protected; reassign them to General business or another project before deleting this project."});
+    const exists=await db.query("SELECT id FROM projects WHERE id=$1",[id]);if(!exists.rows.length)return res.status(404).json({error:"Project not found."});
+    await db.query("DELETE FROM survey_events WHERE project_id=$1",[id]);
+    await db.query("DELETE FROM project_status_history WHERE project_id=$1",[id]);
+    await db.query("DELETE FROM projects WHERE id=$1",[id]);
+   }else if(kind==="event"){
+    const r=await db.query("DELETE FROM survey_events WHERE id=$1 RETURNING id",[id]);if(!r.rows.length)return res.status(404).json({error:"Schedule entry not found."});
+   }else{
+    const r=await db.query("DELETE FROM financial_entries WHERE id=$1 RETURNING id",[id]);if(!r.rows.length)return res.status(404).json({error:"Financial entry not found."});
+   }
+   return res.json({ok:true,deleted:true,kind});
+  }
   if(action==="client"){
    const name=s(b.name,160);if(!name)return res.status(400).json({error:"Client name is required."});
    const {rows}=await db.query("INSERT INTO clients (name,email,phone,address,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id",[name,s(b.email,160)||null,s(b.phone,40)||null,s(b.address,300)||null,s(b.notes,1000)]);
