@@ -21,6 +21,35 @@ export default async function(req,res){
    const {rows}=await db.query("INSERT INTO clients (name,email,phone,address,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id",[name,s(b.email,160)||null,s(b.phone,40)||null,s(b.address,300)||null,s(b.notes,1000)]);
    return res.status(201).json({ok:true,id:rows[0].id});
   }
+  if(action==="update_client"){
+   const id=s(b.id,50),name=s(b.name,160);if(!id||!name)return res.status(400).json({error:"Client name is required."});
+   const {rows}=await db.query("UPDATE clients SET name=$2,email=$3,phone=$4,address=$5,notes=$6 WHERE id=$1 RETURNING id",[id,name,s(b.email,160)||null,s(b.phone,40)||null,s(b.address,300)||null,s(b.notes,1000)]);
+   if(!rows.length)return res.status(404).json({error:"Client not found."});
+   return res.json({ok:true,id:rows[0].id});
+  }
+  if(action==="update_project_full"){
+   const id=s(b.id,50),clientId=s(b.client_id,50),service=s(b.service,100),location=s(b.location,240),fee=Number(b.fee),status=s(b.status,50);
+   if(!id||!clientId||!service||!location||!Number.isFinite(fee)||fee<0||!validStatus.has(status))return res.status(400).json({error:"Check the client, service, location, fee and status."});
+   const note=s(b.public_note,500),internal=s(b.internal_notes,2000),due=isoDate(b.due_date);
+   const {rows}=await db.query("UPDATE projects SET client_id=$2,service=$3,location=$4,fee=$5,status=$6,public_note=$7,internal_notes=$8,due_date=$9,updated_at=NOW() WHERE id=$1 RETURNING id,reference,status,public_note",[id,clientId,service,location,fee,status,note,internal,due]);
+   if(!rows.length)return res.status(404).json({error:"Project not found."});
+   await db.query("INSERT INTO project_status_history (project_id,status,public_note) VALUES ($1,$2,$3)",[id,status,note]);
+   return res.json({ok:true,project:rows[0]});
+  }
+  if(action==="update_event"){
+   const id=s(b.id,50),projectId=s(b.project_id,50),title=s(b.title,160),date=isoDate(b.event_date);
+   if(!id||!projectId||!title||!date)return res.status(400).json({error:"Project, activity title and date are required."});
+   const {rows}=await db.query("UPDATE survey_events SET project_id=$2,event_type=$3,title=$4,event_date=$5,start_time=$6,end_time=$7,location=$8,status=$9,notes=$10 WHERE id=$1 RETURNING id",[id,projectId,s(b.event_type,40)||"Survey",title,date,s(b.start_time,5)||null,s(b.end_time,5)||null,s(b.location,240),s(b.status,40)||"Scheduled",s(b.notes,1000)]);
+   if(!rows.length)return res.status(404).json({error:"Schedule entry not found."});
+   return res.json({ok:true,id:rows[0].id});
+  }
+  if(action==="update_entry"){
+   const id=s(b.id,50),kind=s(b.kind,10),amount=Number(b.amount),date=isoDate(b.entry_date),category=s(b.category,100),description=s(b.description,300);
+   if(!id||!["income","expense"].includes(kind)||!Number.isFinite(amount)||amount<=0||!date||!category||!description)return res.status(400).json({error:"Enter a valid transaction type, positive amount, date, category and description."});
+   const {rows}=await db.query("UPDATE financial_entries SET project_id=$2,kind=$3,amount=$4,entry_date=$5,category=$6,description=$7,payment_reference=$8 WHERE id=$1 RETURNING id",[id,s(b.project_id,50)||null,kind,amount,date,category,description,s(b.payment_reference,160)]);
+   if(!rows.length)return res.status(404).json({error:"Financial entry not found."});
+   return res.json({ok:true,id:rows[0].id});
+  }
   if(action==="project"){
    const clientId=s(b.client_id,50),service=s(b.service,100),location=s(b.location,240),fee=Number(b.fee);
    if(!clientId||!service||!location||!Number.isFinite(fee)||fee<0)return res.status(400).json({error:"Enter a client, service, location and valid fee."});
